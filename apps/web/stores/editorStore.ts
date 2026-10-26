@@ -2,15 +2,20 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import {
-  DEFAULT_ADJUSTMENTS, clampAdjustments,
+  ADJUSTMENT_KEYS, DEFAULT_ADJUSTMENTS, clampAdjustments,
   type Adjustments, type AdjustmentKey,
 } from "@/lib/adjustments";
+import type { CurveChannel, CurvePoint } from "@/lib/curve";
+import type { CropRect } from "@/lib/crop";
 
 export interface HistoryEntry {
   id: number;
   label: string;
   source: "manual" | "preset" | "ai" | "init";
   adjustments: Adjustments;
+  /** null = không cắt (dùng toàn bộ ảnh đã xoay) */
+  crop: CropRect | null;
+  rotation: number;
 }
 
 export interface MentorMessage {
@@ -43,6 +48,16 @@ interface EditorState {
   history: HistoryEntry[];
   cursor: number;
 
+  /** null = không cắt (dùng toàn bộ ảnh đã xoay) — toạ độ chuẩn hoá 0..1 tương đối với ảnh ĐÃ XOAY. */
+  crop: CropRect | null;
+  rotation: number;
+  cropToolActive: boolean;
+  setCropToolActive: (v: boolean) => void;
+  setLiveCrop: (c: CropRect | null) => void;
+  setLiveRotation: (deg: number) => void;
+  commitCrop: (label: string) => void;
+  resetCrop: () => void;
+
   compare: boolean;
   split: number;
   zoom: number | "fit";
@@ -60,6 +75,9 @@ interface EditorState {
 
   setImage: (url: string, name: string, file?: File | null) => void;
   setLive: (key: AdjustmentKey, value: number) => void;
+  /** Cập nhật xem trước khi kéo điểm trên đường cong — tương đương setLive nhưng cho curves. */
+  setLiveCurve: (channel: CurveChannel, points: CurvePoint[]) => void;
+  commitCurve: (channel: CurveChannel, label: string) => void;
   commit: (label: string, source?: HistoryEntry["source"]) => void;
   apply: (partial: Partial<Adjustments>, label: string, source: HistoryEntry["source"], replace?: boolean) => void;
   reset: () => void;
@@ -82,7 +100,7 @@ interface EditorState {
 
 let uid = 1;
 const initEntry = (): HistoryEntry => ({
-  id: uid++, label: "Ảnh gốc", source: "init", adjustments: { ...DEFAULT_ADJUSTMENTS },
+  id: uid++, label: "Ảnh gốc", source: "init", adjustments: { ...DEFAULT_ADJUSTMENTS }, crop: null, rotation: 0,
 });
 const MAX_HISTORY = 100;
 
@@ -95,6 +113,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   aiTargets: null,
   history: [initEntry()],
   cursor: 0,
+  crop: null,
+  rotation: 0,
+  cropToolActive: false,
   compare: false,
   split: 0.5,
   zoom: "fit",
@@ -115,16 +136,24 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({
       imageUrl: url, fileName: name, originalFile: file, adjustments: { ...DEFAULT_ADJUSTMENTS },
       history: [initEntry()], cursor: 0, preview: null, aiTargets: null, zoom: "fit",
+      crop: null, rotation: 0, cropToolActive: false,
     }),
 
   setLive: (key, value) => set((s) => ({ adjustments: { ...s.adjustments, [key]: value } })),
 
+  setLiveCurve: (channel, points) =>
+    set((s) => ({ adjustments: { ...s.adjustments, curves: { ...s.adjustments.curves, [channel]: points } } })),
+  commitCurve: (_channel, label) => get().commit(label, "manual"),
+
   commit: (label, source = "manual") => {
-    const { history, cursor, adjustments } = get();
-    const last = history[cursor].adjustments;
-    const changed = (Object.keys(adjustments) as AdjustmentKey[]).some((k) => adjustments[k] !== last[k]);
+    const { history, cursor, adjustments, crop, rotation } = get();
+    const lastEntry = history[cursor];
+    const last = lastEntry.adjustments;
+    const changed =
+      ADJUSTMENT_KEYS.some((k) => adjustments[k] !== last[k]) || adjustments.curves !== last.curves ||
+      crop !== lastEntry.crop || rotation !== lastEntry.rotation;
     if (!changed) return;
-    const next = [...history.slice(0, cursor + 1), { id: uid++, label, source, adjustments: { ...adjustments } }]
+    const next = [...history.slice(0, cursor + 1), { id: uid++, label, source, adjustments: { ...adjustments }, crop, rotation }]
       .slice(-MAX_HISTORY);
     set({ history: next, cursor: next.length - 1 });
   },
@@ -141,14 +170,26 @@ export const useEditor = create<EditorState>((set, get) => ({
   undo: () => {
     const { cursor, history } = get();
     if (cursor === 0) return;
-    set({ cursor: cursor - 1, adjustments: { ...history[cursor - 1].adjustments } });
+    const e = history[cursor - 1];
+    set({ cursor: cursor - 1, adjustments: { ...e.adjustments }, crop: e.crop, rotation: e.rotation });
   },
   redo: () => {
     const { cursor, history } = get();
     if (cursor >= history.length - 1) return;
-    set({ cursor: cursor + 1, adjustments: { ...history[cursor + 1].adjustments } });
+    const e = history[cursor + 1];
+    set({ cursor: cursor + 1, adjustments: { ...e.adjustments }, crop: e.crop, rotation: e.rotation });
   },
-  jumpTo: (i) => set((s) => ({ cursor: i, adjustments: { ...s.history[i].adjustments } })),
+  jumpTo: (i) =>
+    set((s) => ({ cursor: i, adjustments: { ...s.history[i].adjustments }, crop: s.history[i].crop, rotation: s.history[i].rotation })),
+
+  setCropToolActive: (v) => set({ cropToolActive: v }),
+  setLiveCrop: (c) => set({ crop: c }),
+  setLiveRotation: (deg) => set({ rotation: Math.min(45, Math.max(-45, deg)) }),
+  commitCrop: (label) => get().commit(label, "manual"),
+  resetCrop: () => {
+    set({ crop: null, rotation: 0 });
+    get().commit("Đặt lại cắt ảnh", "manual");
+  },
 
   setPreview: (p) => set({ preview: p }),
   setCompare: (v) => set({ compare: v }),

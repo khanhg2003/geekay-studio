@@ -1,20 +1,27 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, Check, Eye, Sparkles, Wand2 } from "lucide-react";
+import { ArrowUp, BookmarkPlus, Check, Eye, Sparkles, Wand2 } from "lucide-react";
 import clsx from "clsx";
 import { SPEC_BY_KEY, formatValue, type AdjustmentKey, type Adjustments } from "@/lib/adjustments";
 import { askMentor } from "@/lib/mentorApi";
+import { saveCustomPreset } from "@/lib/customPresets";
 import { useEditor, type MentorMessage } from "@/stores/editorStore";
 import { useHistogram } from "@/stores/histogramStore";
 
 const QUICK_PROMPTS = ["Phân tích ảnh này", "Cải thiện tone da", "Tạo mood điện ảnh"];
 
-/** Hook dùng chung: gửi câu hỏi tới Mentor (dùng cả ở thanh mini và panel đầy đủ) */
+/**
+ * Hook dùng chung: gửi câu hỏi tới Mentor (dùng cả ở thanh mini, panel đầy đủ, và nút "Tự động").
+ * Với autoApply=true (nút Tự động): áp dụng ngay gợi ý thay vì chờ người dùng bấm "Áp dụng", đồng
+ * thời ném lại lỗi (sau khi đã ghi vào khung chat) để nơi gọi có thể hiển thị thêm toast nếu cần.
+ */
 export function useAskMentor() {
   const pushMessage = useEditor((s) => s.pushMessage);
   const setBusy = useEditor((s) => s.setMentorBusy);
-  return async (text: string) => {
+  const apply = useEditor((s) => s.apply);
+  const markApplied = useEditor((s) => s.markApplied);
+  return async (text: string, opts?: { autoApply?: boolean }) => {
     const msg = text.trim();
     if (!msg || useEditor.getState().mentorBusy) return;
     pushMessage({ role: "user", content: msg });
@@ -22,10 +29,15 @@ export function useAskMentor() {
     try {
       const canvas = document.querySelector<HTMLCanvasElement>("canvas");
       const res = await askMentor(msg, useHistogram.getState().data, useEditor.getState().adjustments, canvas);
-      pushMessage({ role: "assistant", content: res.advice, suggestion: res.adjustments });
+      const id = pushMessage({ role: "assistant", content: res.advice, suggestion: res.adjustments });
+      if (opts?.autoApply && res.adjustments && Object.keys(res.adjustments).length > 0) {
+        apply(res.adjustments, "AI Tự động nâng cấp", "ai");
+        markApplied(id);
+      }
     } catch (err) {
       const text = err instanceof Error ? err.message : "Xin lỗi, Mentor tạm thời không phản hồi. Vui lòng thử lại.";
       pushMessage({ role: "assistant", content: text });
+      if (opts?.autoApply) throw err; // để nút "Tự động" hiển thị thêm toast (chat có thể đang ẩn)
     } finally {
       setBusy(false);
     }
@@ -37,8 +49,19 @@ function SuggestionCard({ msg }: { msg: MentorMessage }) {
   const apply = useEditor((s) => s.apply);
   const setPreview = useEditor((s) => s.setPreview);
   const markApplied = useEditor((s) => s.markApplied);
+  const showToast = useEditor((s) => s.showToast);
+  const [savingName, setSavingName] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const s = msg.suggestion!;
   const keys = Object.keys(s) as AdjustmentKey[];
+
+  const confirmSave = () => {
+    const name = (savingName ?? "").trim() || "Gợi ý AI";
+    saveCustomPreset(name, s);
+    setSaved(true);
+    setSavingName(null);
+    showToast(`Đã lưu "${name}" vào Preset của bạn.`, "info");
+  };
 
   return (
     <div className="mt-2.5 overflow-hidden rounded-md border border-line bg-bg-app">
@@ -77,6 +100,39 @@ function SuggestionCard({ msg }: { msg: MentorMessage }) {
         >
           {msg.applied ? <><Check className="h-3 w-3" /> Đã áp dụng</> : <><Wand2 className="h-3 w-3" /> Áp dụng</>}
         </button>
+      </div>
+      <div className="border-t border-line">
+        {savingName !== null ? (
+          <div className="flex items-center gap-1.5 p-2">
+            <input
+              autoFocus
+              value={savingName}
+              onChange={(e) => setSavingName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmSave();
+                if (e.key === "Escape") setSavingName(null);
+              }}
+              placeholder="Tên preset…"
+              className="h-7 flex-1 rounded border border-line-strong bg-bg-elevated px-2 text-[11px] text-fg outline-none"
+            />
+            <button
+              type="button"
+              onClick={confirmSave}
+              className="flex h-7 items-center rounded bg-fg px-2.5 text-[11px] font-medium text-black"
+            >
+              Lưu
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={saved}
+            onClick={() => setSavingName("")}
+            className="flex w-full items-center justify-center gap-1.5 py-2 text-[11px] text-fg-3 transition-colors hover:bg-white/[0.04] hover:text-fg disabled:opacity-40"
+          >
+            {saved ? <><Check className="h-3 w-3" /> Đã lưu vào Preset của bạn</> : <><BookmarkPlus className="h-3 w-3" /> Lưu thành preset riêng</>}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -2,9 +2,10 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import {
-  Columns2, Download, ImagePlus, Loader2, Maximize, PanelLeft, Redo2, RotateCcw, Undo2,
+  Columns2, Crop, Download, ImagePlus, Loader2, Maximize, PanelLeft, Redo2, RotateCcw, Sparkles, Undo2,
 } from "lucide-react";
 import clsx from "clsx";
+import { useAskMentor } from "./MentorPanel/MentorPanel";
 import { isRenderApiConfigured, renderFullRes } from "@/lib/renderApi";
 import { useEditor } from "@/stores/editorStore";
 
@@ -50,6 +51,20 @@ export function Topbar() {
   const leftOpen = useEditor((s) => s.leftOpen);
   const setLeftOpen = useEditor((s) => s.setLeftOpen);
   const showToast = useEditor((s) => s.showToast);
+  const cropToolActive = useEditor((s) => s.cropToolActive);
+  const setCropToolActive = useEditor((s) => s.setCropToolActive);
+  const setRightTab = useEditor((s) => s.setRightTab);
+  const mentorBusy = useEditor((s) => s.mentorBusy);
+  const askMentorText = useAskMentor();
+
+  const autoEnhance = async () => {
+    setRightTab("mentor");
+    try {
+      await askMentorText("Phân tích và tự động cải thiện toàn diện ảnh này — chọn bộ thông số phù hợp nhất với ánh sáng, màu sắc và chủ thể hiện có.", { autoApply: true });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Không thể tự động chỉnh ảnh.");
+    }
+  };
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -85,11 +100,11 @@ export function Topbar() {
 
   /** Ưu tiên xuất full-res qua backend (apps/api) nếu đã cấu hình và còn giữ file gốc; lỗi thì fallback về canvas. */
   const exportImage = async () => {
-    const { originalFile, adjustments } = useEditor.getState();
+    const { originalFile, adjustments, crop, rotation } = useEditor.getState();
     if (isRenderApiConfigured() && originalFile) {
       setExporting(true);
       try {
-        const blob = await renderFullRes(originalFile, adjustments);
+        const blob = await renderFullRes(originalFile, adjustments, rotation, crop);
         downloadBlob(blob, "jpg");
         return;
       } catch (err) {
@@ -122,9 +137,24 @@ export function Topbar() {
         <IconBtn label="Đặt lại tất cả" onClick={reset} className="hidden sm:flex"><RotateCcw className="h-3.5 w-3.5" /></IconBtn>
       </div>
 
+      <button
+        id="btn-auto"
+        type="button"
+        title="AI tự động phân tích và chỉnh toàn bộ ảnh"
+        onClick={autoEnhance}
+        disabled={mentorBusy}
+        className="ml-1.5 flex h-7 items-center gap-1.5 rounded-md border border-line-strong px-2.5 text-[12px] text-ai transition-colors hover:bg-ai-soft disabled:opacity-40"
+      >
+        {mentorBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+        <span className="hidden sm:inline">Tự động</span>
+      </button>
+
       <div className="flex-1" />
 
       <div className="flex items-center gap-0.5">
+        <IconBtn id="btn-crop" label="Cắt & xoay ảnh" onClick={() => setCropToolActive(!cropToolActive)} active={cropToolActive}>
+          <Crop className="h-3.5 w-3.5" />
+        </IconBtn>
         <IconBtn id="btn-compare" label="So sánh trước/sau (giữ \ để xem ảnh gốc)" onClick={() => setCompare(!compare)} active={compare}>
           <Columns2 className="h-3.5 w-3.5" />
         </IconBtn>

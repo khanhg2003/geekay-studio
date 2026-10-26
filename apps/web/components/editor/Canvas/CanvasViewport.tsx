@@ -3,6 +3,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { DevelopRenderer } from "./webgl/renderer";
+import { CropOverlay } from "./CropOverlay";
+import { CropToolbar } from "./CropToolbar";
+import { buildWorkingCanvas } from "@/lib/crop";
 import { useEditor, useEffectiveAdjustments } from "@/stores/editorStore";
 import { useHistogram } from "@/stores/histogramStore";
 
@@ -16,6 +19,12 @@ export function CanvasViewport() {
   const histTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const imageUrl = useEditor((s) => s.imageUrl);
+  const crop = useEditor((s) => s.crop);
+  const rotation = useEditor((s) => s.rotation);
+  const cropToolActive = useEditor((s) => s.cropToolActive);
+  /** Trong lúc chỉnh khung cắt: luôn null (ổn định qua các lần render) để KHÔNG nạp lại ảnh mỗi khi
+      kéo khung — chỉ thực sự bake crop vào ảnh làm việc khi người dùng bấm Áp dụng. */
+  const effectiveCrop = cropToolActive ? null : crop;
   const compare = useEditor((s) => s.compare);
   const split = useEditor((s) => s.split);
   const setSplit = useEditor((s) => s.setSplit);
@@ -68,22 +77,37 @@ export function CanvasViewport() {
     };
   }, [showToast]);
 
-  // Nạp ảnh (chạy lại khi đổi ảnh HOẶC khi WebGL context vừa được khôi phục)
+  // Nạp ảnh (chạy lại khi đổi ảnh, xoay/cắt, bật tắt công cụ cắt, hoặc WebGL context vừa khôi phục).
+  // Trong lúc cropToolActive: hiển thị TOÀN BỘ ảnh đã xoay (chưa cắt) để người dùng kéo khung chọn;
+  // khi đã áp dụng (không còn ở chế độ cắt): hiển thị ảnh đã xoay + cắt theo đúng crop đang lưu.
   useEffect(() => {
     const r = rendererRef.current;
     if (!r) return;
+    // Khi crop/rotation đổi liên tục (vd. kéo khung cắt), effect này chạy lại nhiều lần trước khi
+    // ảnh (đã cache) kịp "load" xong — nếu không huỷ các lần chạy cũ, onload của chúng có thể hoàn
+    // tất SAU lần mới nhất và ghi đè imgSize/canvas bằng dữ liệu đã lỗi thời.
+    let cancelled = false;
     setLoading(true);
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      r.setImage(img);
+      if (cancelled) return;
+      const working = buildWorkingCanvas(img, rotation, effectiveCrop);
+      r.setImage(working);
       setImgSize({ w: r.width, h: r.height });
       setPan({ x: 0, y: 0 });
       setLoading(false);
     };
-    img.onerror = () => { setError("Không thể tải ảnh."); setLoading(false); };
+    img.onerror = () => { if (!cancelled) { setError("Không thể tải ảnh."); setLoading(false); } };
     img.src = imageUrl;
-  }, [imageUrl, glEpoch]);
+    return () => { cancelled = true; };
+  }, [imageUrl, glEpoch, rotation, effectiveCrop]);
+
+  // Dựng lại texture LUT đường cong khi curves đổi, hoặc khi renderer vừa được tạo lại (glEpoch — vd.
+  // sau khi khôi phục WebGL context) vì renderer mới chỉ có LUT identity mặc định.
+  useEffect(() => {
+    rendererRef.current?.setCurves(adjustments.curves);
+  }, [adjustments.curves, glEpoch]);
 
   // Render mỗi khi thông số đổi (gộp vào 1 frame)
   useEffect(() => {
@@ -96,6 +120,11 @@ export function CanvasViewport() {
       histTimer.current = setTimeout(() => setHist(r.histogram()), 60);
     });
   }, [adjustments, compare, split, holdOriginal, loading, setHist]);
+
+  // Luôn hiện trọn ảnh (Vừa khung) khi bật công cụ Cắt, để khung chọn luôn khớp đúng vùng hiển thị
+  useEffect(() => {
+    if (cropToolActive) { setZoom("fit"); setPan({ x: 0, y: 0 }); }
+  }, [cropToolActive, setZoom]);
 
   // Theo dõi kích thước vùng chứa
   useLayoutEffect(() => {
@@ -130,12 +159,13 @@ export function CanvasViewport() {
   const dispH = imgSize.h * scale;
 
   const onWheel = (e: React.WheelEvent) => {
-    if (!e.ctrlKey && !e.metaKey) return;
+    if (cropToolActive || (!e.ctrlKey && !e.metaKey)) return;
     const next = Math.min(4, Math.max(0.1, scale * (e.deltaY < 0 ? 1.1 : 0.9)));
     setZoom(Number(next.toFixed(3)));
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (cropToolActive) return;
     if (!(spaceDown || e.button === 1 || zoom !== "fit")) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     panning.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
@@ -163,7 +193,7 @@ export function CanvasViewport() {
       onPointerDown={onPointerDown}
       onPointerMove={(e) => { onPointerMove(e); onSplitMove(e); }}
       onPointerUp={() => { onPointerUp(); splitDrag.current = false; }}
-      onDoubleClick={() => setZoom(zoom === "fit" ? 1 : "fit")}
+      onDoubleClick={() => { if (!cropToolActive) setZoom(zoom === "fit" ? 1 : "fit"); }}
       className="canvas-bg relative h-full w-full overflow-hidden"
       style={{ cursor: spaceDown || zoom !== "fit" ? (panning.current ? "grabbing" : "grab") : "default" }}
     >
@@ -180,7 +210,9 @@ export function CanvasViewport() {
           style={{ opacity: loading ? 0 : 1, transition: "opacity 300ms ease" }}
         />
 
-        {compare && !loading && (
+        {cropToolActive && !loading && <CropOverlay />}
+
+        {compare && !loading && !cropToolActive && (
           <>
             <div
               className="absolute inset-y-0 w-px bg-white/70"
@@ -224,11 +256,13 @@ export function CanvasViewport() {
       )}
 
       {/* Chỉ báo zoom */}
-      {!loading && (
+      {!loading && !cropToolActive && (
         <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/50 px-2 py-0.5 font-mono text-[10px] text-fg-3 backdrop-blur">
           {Math.round(scale * 100)}% · {imgSize.w}×{imgSize.h}
         </div>
       )}
+
+      {cropToolActive && <CropToolbar />}
     </div>
   );
 }

@@ -19,6 +19,8 @@ async def render_image(
     adjustments: str = Form(...),
     format: str = Form("jpeg"),
     quality: int = Form(92),
+    rotation: float = Form(0.0),
+    crop: str | None = Form(None),
 ) -> Response:
     settings = get_settings()
 
@@ -41,9 +43,19 @@ async def render_image(
     if format.lower() not in ("jpeg", "jpg", "png"):
         raise HTTPException(status_code=400, detail=f"Định dạng xuất không được hỗ trợ: {format}")
     quality = min(100, max(1, quality))
+    rotation = min(45.0, max(-45.0, rotation))
+
+    crop_dict: dict | None = None
+    if crop:
+        try:
+            crop_dict = json.loads(crop)
+            if not isinstance(crop_dict, dict) or not all(k in crop_dict for k in ("x", "y", "w", "h")):
+                raise ValueError("thiếu trường x/y/w/h")
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Thông số cắt ảnh không hợp lệ.") from exc
 
     try:
-        arr = decode_image(data, max_edge=settings.max_render_edge)
+        arr = decode_image(data, max_edge=settings.max_render_edge, rotation=rotation, crop=crop_dict)
     except InvalidImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

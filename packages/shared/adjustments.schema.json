@@ -1,10 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "GeekayAdjustments",
-  "description": "Hợp đồng thông số chỉnh sửa dùng chung cho Frontend (WebGL), Backend (Python) và AI Mentor.",
+  "description": "Hợp đồng thông số chỉnh sửa dùng chung cho Frontend (WebGL), Backend (Python) và AI Mentor. PHẢI khớp apps/web/lib/adjustments.ts và apps/api/app/schemas/adjustments.py.",
   "type": "object",
+  "$defs": {
+    "curvePoint": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 255 },
+        "y": { "type": "number", "minimum": 0, "maximum": 255 }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "curvePoints": { "type": "array", "items": { "$ref": "#/$defs/curvePoint" }, "minItems": 2 },
+    "hslBand": {
+      "type": "object",
+      "properties": {
+        "Hue": { "type": "number", "minimum": -100, "maximum": 100 },
+        "Sat": { "type": "number", "minimum": -100, "maximum": 100 },
+        "Lum": { "type": "number", "minimum": -100, "maximum": 100 }
+      }
+    }
+  },
   "properties": {
     "version": { "const": 1 },
+
     "temperature": { "type": "number", "minimum": -100, "maximum": 100 },
     "tint": { "type": "number", "minimum": -100, "maximum": 100 },
     "exposure": { "type": "number", "minimum": -5, "maximum": 5 },
@@ -13,11 +34,65 @@
     "shadows": { "type": "number", "minimum": -100, "maximum": 100 },
     "whites": { "type": "number", "minimum": -100, "maximum": 100 },
     "blacks": { "type": "number", "minimum": -100, "maximum": 100 },
+    "texture": { "type": "number", "minimum": -100, "maximum": 100 },
     "clarity": { "type": "number", "minimum": -100, "maximum": 100 },
+    "dehaze": { "type": "number", "minimum": -100, "maximum": 100 },
     "vibrance": { "type": "number", "minimum": -100, "maximum": 100 },
     "saturation": { "type": "number", "minimum": -100, "maximum": 100 },
+    "sharpen": { "type": "number", "minimum": 0, "maximum": 100 },
+    "noiseReduction": { "type": "number", "minimum": 0, "maximum": 100 },
+    "colorNoiseReduction": { "type": "number", "minimum": 0, "maximum": 100 },
+    "bloomIntensity": { "type": "number", "minimum": 0, "maximum": 100 },
+    "fadeAmount": { "type": "number", "minimum": 0, "maximum": 100 },
+
+    "hslRedHue": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslRedSat": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslRedLum": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslOrangeHue": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslOrangeSat": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslOrangeLum": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslYellowHue": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslYellowSat": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslYellowLum": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslGreenHue": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslGreenSat": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslGreenLum": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslAquaHue": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslAquaSat": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslAquaLum": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslBlueHue": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslBlueSat": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslBlueLum": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslPurpleHue": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslPurpleSat": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslPurpleLum": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslMagentaHue": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslMagentaSat": { "type": "number", "minimum": -100, "maximum": 100 },
+    "hslMagentaLum": { "type": "number", "minimum": -100, "maximum": 100 },
+
+    "splitShadowHue": { "type": "number", "minimum": 0, "maximum": 360 },
+    "splitShadowSat": { "type": "number", "minimum": 0, "maximum": 100 },
+    "splitMidtoneHue": { "type": "number", "minimum": 0, "maximum": 360 },
+    "splitMidtoneSat": { "type": "number", "minimum": 0, "maximum": 100 },
+    "splitHighlightHue": { "type": "number", "minimum": 0, "maximum": 360 },
+    "splitHighlightSat": { "type": "number", "minimum": 0, "maximum": 100 },
+    "splitBalance": { "type": "number", "minimum": -100, "maximum": 100 },
+    "splitBlend": { "type": "number", "minimum": 0, "maximum": 100 },
+
     "vignette": { "type": "number", "minimum": -100, "maximum": 100 },
-    "grain": { "type": "number", "minimum": 0, "maximum": 100 }
+    "grain": { "type": "number", "minimum": 0, "maximum": 100 },
+
+    "curves": {
+      "type": "object",
+      "description": "Đường cong tông màu — chỉ chỉnh tay qua UI, AI Mentor KHÔNG được set trường này.",
+      "properties": {
+        "rgb": { "$ref": "#/$defs/curvePoints" },
+        "r": { "$ref": "#/$defs/curvePoints" },
+        "g": { "$ref": "#/$defs/curvePoints" },
+        "b": { "$ref": "#/$defs/curvePoints" }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

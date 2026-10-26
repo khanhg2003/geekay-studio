@@ -23,6 +23,29 @@ export async function mockMentorReply(
   }
   const q = message.toLowerCase();
 
+  if (/thơ|mơ màng|lãng mạn|bạch nguyệt quang|bach nguyet quang|dreamy/.test(q)) {
+    return {
+      advice:
+        "Chất 'bạch nguyệt quang' nằm ở Low Contrast + Bloom: tôi hạ mạnh tương phản, thêm hiệu ứng phát sáng mềm quanh vùng đủ sáng (viền tóc, highlight), nâng nhẹ điểm đen cho cảm giác sương mù, và làm da sáng hồng — bloom chỉ kích hoạt ở vùng sáng nên nền phía sau vẫn giữ được độ chân thực, không bị đục.",
+      adjustments: {
+        contrast: current.contrast - 25, highlights: current.highlights - 10, shadows: current.shadows + 15,
+        bloomIntensity: 40, fadeAmount: 15, saturation: current.saturation - 8,
+        hslOrangeLum: current.hslOrangeLum + 10, hslOrangeSat: current.hslOrangeSat - 6,
+      },
+    };
+  }
+  if (/fuji|film|phim/.test(q)) {
+    return {
+      advice:
+        "Chất phim Fuji nằm nhiều ở Split Toning và HSL hơn là Exposure/Contrast: tôi hạ nhẹ bão hoà tổng thể, nhuộm vùng tối ngả lục-lam kiểu Classic Chrome, vùng sáng ngả vàng ấm, đồng thời làm dịu tông da (Orange) để không bị ám màu lạ.",
+      adjustments: {
+        contrast: current.contrast + 10, saturation: current.saturation - 14, texture: current.texture + 10,
+        hslOrangeSat: current.hslOrangeSat - 10, hslOrangeLum: current.hslOrangeLum + 6,
+        hslYellowSat: current.hslYellowSat - 12,
+        splitShadowHue: 100, splitShadowSat: 16, splitHighlightHue: 46, splitHighlightSat: 10, splitBalance: -6,
+      },
+    };
+  }
   if (/da|skin|chân dung|người/.test(q)) {
     return {
       advice:

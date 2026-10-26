@@ -3,13 +3,16 @@ import io
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from app.services.imaging.crop_transform import apply_crop_rotation
+
 
 class InvalidImageError(ValueError):
     pass
 
 
-def decode_image(data: bytes, max_edge: int) -> np.ndarray:
-    """Giải mã bytes -> numpy float32 RGB [0,1], tự xoay theo EXIF và hạ kích thước nếu vượt max_edge."""
+def decode_image(data: bytes, max_edge: int, rotation: float = 0.0, crop: dict | None = None) -> np.ndarray:
+    """Giải mã bytes -> numpy float32 RGB [0,1], tự xoay theo EXIF, áp Cắt & Xoay thủ công (nếu có)
+    rồi hạ kích thước nếu vượt max_edge."""
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
@@ -23,6 +26,9 @@ def decode_image(data: bytes, max_edge: int) -> np.ndarray:
     img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
         img = img.convert("RGB")
+
+    if rotation or crop is not None:
+        img = apply_crop_rotation(img, rotation, crop)
 
     longest = max(img.width, img.height)
     if longest > max_edge:
